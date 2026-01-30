@@ -1,0 +1,24 @@
+{
+  "world": [
+    {
+      "worldName": "喵星天下",
+      "worldDescription": "想像一下，如果貓咪統治世界…人類不再是食物鏈的頂端，而是成為了貓咪的僕人和娛樂來源。高聳的貓抓板取代了摩天大樓，貓薄荷田野覆蓋了曾經的農田。貓咪議會制定了新的法律，其中最重要的一條就是：每天都要為貓咪提供足夠的撫摸和零食。人類則努力工作，製造更多逗貓棒和舒適的貓窩，以求得貓咪統治者的歡心。這個世界充滿了慵懶的氣息、偶爾爆發的貓咪爭鬥，以及永遠響徹雲霄的呼嚕聲。",
+      "visualStyle": "Whimsical, vibrant, slightly surreal. Think Studio Ghibli meets Terry Gilliam, but with cats everywhere. Over-the-top architecture incorporating cat toys, yarn, and scratching posts. Pastel colors juxtaposed with the vibrant hues of cat toys and cat food.",
+      "mainCharacterDescription": "A formerly middle-management worker named Kevin, now a devoted 'Cat Servant'. Kevin is short, slightly overweight, and always looks frazzled. He perpetually wears a stained Cat Servant uniform (think mechanic's jumpsuit but with cat ears and a tail) and carries an overflowing bag of cat treats and cleaning supplies. His hair is perpetually sticking up in different directions from frantic head scratches and the occasional cat nap on his head. He has kind eyes, perpetually tired, but always filled with a quiet desperation to please his feline overlords, especially his own demanding tabby cat, Princess Fluffybutt."
+    }
+  ],
+  "segments": [
+    {
+      "visualPrompt": "A wide shot of a city where giant cat scratching posts replace skyscrapers. Humans in cat servant uniforms scurry around.",
+      "audioScript": "喵星天下的城市，巨大的貓抓板取代了摩天大樓。身穿貓僕制服的人類匆忙地奔走。"
+    },
+    {
+      "visualPrompt": "Close-up on Kevin, a frazzled Cat Servant, offering a treat to a disdainful tabby cat named Princess Fluffybutt.",
+      "audioScript": "特寫鏡頭，一位名叫凱文的疲憊貓僕，正向一隻名叫毛茸茸公主的傲慢虎斑貓提供零食。"
+    },
+    {
+      "visualPrompt": "An overhead shot of humans diligently working in a catnip field, under the watchful eye of lounging cats.",
+      "audioScript": "俯視鏡頭，人類在貓薄荷田中辛勤勞作，而慵懶的貓咪們在一旁監視著他們。"
+    }
+  ]
+}
