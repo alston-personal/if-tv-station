@@ -45,3 +45,8 @@ memory/
 .agent
 .agent/
 
+
+cookie.json
+jobs.json
+public/renders/
+scratch/

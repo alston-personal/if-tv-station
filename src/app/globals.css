@@ -62,3 +62,28 @@ body {
 .animate-float {
   animation: float 6s ease-in-out infinite;
 }
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(139, 92, 246, 0.7) rgba(24, 24, 27, 0.75);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(24, 24, 27, 0.75);
+  border-radius: 999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(139, 92, 246, 0.85), rgba(99, 102, 241, 0.75));
+  border-radius: 999px;
+  border: 2px solid rgba(24, 24, 27, 0.9);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(167, 139, 250, 0.95), rgba(129, 140, 248, 0.85));
+}
