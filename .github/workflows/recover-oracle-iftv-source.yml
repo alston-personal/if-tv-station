@@ -1,0 +1,58 @@
+name: Recover Oracle IFTV Source Snapshot
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/recover-oracle-iftv-source.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: [self-hosted, Linux, ARM64, oracle]
+    timeout-minutes: 5
+    steps:
+      - name: Collect allowlisted source snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidates=(
+            /home/ubuntu/if-tv-station
+            /home/ubuntu/agent-workspaces/if-tv-station
+            /home/ubuntu/projects/if-tv-station
+          )
+          src=''
+          for candidate in "${candidates[@]}"; do
+            if [ -f "$candidate/package.json" ] && [ -d "$candidate/src" ]; then
+              src="$candidate"
+              break
+            fi
+          done
+          test -n "$src"
+          out="$RUNNER_TEMP/iftv-recovery"
+          mkdir -p "$out"
+          printf '%s\n' "$src" > "$out/SOURCE_PATH.txt"
+          if [ -d "$src/.git" ]; then
+            git -C "$src" rev-parse HEAD > "$out/SOURCE_HEAD.txt" 2>/dev/null || true
+            git -C "$src" status --short > "$out/SOURCE_STATUS.txt" 2>/dev/null || true
+            git -C "$src" remote get-url origin > "$out/SOURCE_REMOTE.txt" 2>/dev/null || true
+          fi
+          cp "$src/package.json" "$out/package.json"
+          [ -f "$src/package-lock.json" ] && cp "$src/package-lock.json" "$out/package-lock.json" || true
+          [ -f "$src/tsconfig.json" ] && cp "$src/tsconfig.json" "$out/tsconfig.json" || true
+          [ -f "$src/eslint.config.mjs" ] && cp "$src/eslint.config.mjs" "$out/eslint.config.mjs" || true
+          [ -f "$src/next.config.ts" ] && cp "$src/next.config.ts" "$out/next.config.ts" || true
+          cp -a "$src/src" "$out/src"
+          find "$out" -type f \( -name '.env' -o -name '.env.*' -o -name '*.pem' -o -name '*.key' \) -delete
+          find "$out" -type d \( -name node_modules -o -name renders -o -name '.next' \) -prune -exec rm -rf {} +
+          echo "source=$src"
+          find "$out" -maxdepth 4 -type f | sort
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oracle-iftv-source-snapshot
+          path: ${{ runner.temp }}/iftv-recovery
+          if-no-files-found: error
+          retention-days: 1
