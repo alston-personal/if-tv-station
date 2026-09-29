@@ -5,6 +5,7 @@ import { promisify } from 'util';
 import { getJob, saveJob, Job, Segment } from './db';
 import { generateVideoSegment, generateWittyMetadata, translateSubtitles, generateImageSegment, generateFreeVideoSegment } from './gemini';
 import { generateVideoViaBrowser } from './gemini_browser';
+import { generateVideoWithProvider } from './video_provider';
 
 const execPromise = promisify(exec);
 
@@ -193,6 +194,66 @@ async function processJob(jobId: string) {
 
           // 清理臨時檔
           if (fs.existsSync(tempVeoVideoPath)) fs.unlinkSync(tempVeoVideoPath);
+          if (fs.existsSync(tempTtsPath)) fs.unlinkSync(tempTtsPath);
+        } else if (mode === 'h3_colab') {
+          // ── AgentOS provider mode: MiniMax H3 via Google Colab ─────────────
+          // Generate a stable reference image first, then animate it with H3.
+          const tempImgPath = path.join('/tmp', `h3_ref_${jobId}_seg_${segment.id}.jpg`);
+          const tempH3VideoPath = path.join('/tmp', `h3_raw_${jobId}_seg_${segment.id}.mp4`);
+
+          console.log(`[Worker][Job ${jobId}][Seg ${segment.id}][H3] Generating reference image...`);
+          await generateImageSegment(
+            segment.visualPrompt,
+            style,
+            character,
+            tempImgPath
+          );
+
+          const h3Prompt = [
+            `subject_definitions:\nMain subject and visual identity must match <Picture 1>. ${character}`,
+            `summary:\n${segment.visualPrompt}`,
+            `retention_analysis:\nPreserve face, body proportions, clothing, colors, and overall identity from <Picture 1> while adding natural motion.`,
+            `detailed_description:\n[Shot 1] ${segment.visualPrompt}. Cinematic natural motion, coherent anatomy, stable identity, no abrupt appearance changes.`,
+            `overall_soundscape:\nNo generated dialogue is required; IFTV adds narration in post-production.`,
+            `non_diegetic_music:\nNone; IFTV handles final audio.`
+          ].join('\n\n');
+
+          await generateVideoWithProvider({
+            provider: 'h3_colab',
+            prompt: h3Prompt,
+            referenceImages: [tempImgPath],
+            durationSeconds: SEG_DURATION,
+            outputPath: tempH3VideoPath,
+            jobId,
+            segmentId: segment.id,
+            onProgress: (msg) => {
+              console.log(`[Worker][Job ${jobId}][Seg ${segment.id}][H3] ${msg}`);
+            }
+          });
+
+          console.log(`[Worker][Job ${jobId}][Seg ${segment.id}][H3] Generating TTS voiceover...`);
+          await generateTtsSafe(segment.audioScript, tempTtsPath);
+          const realDuration = await getAudioDuration(tempTtsPath) + 0.5;
+
+          const mergeCmd = [
+            `/usr/bin/ffmpeg -y`,
+            `-i "${tempH3VideoPath}"`,
+            `-i "${tempTtsPath}"`,
+            `-filter_complex "[0:v]scale=1920:1080:flags=lanczos,tpad=stop_mode=clone:stop_duration=8[vout];[1:a]apad=whole_dur=${realDuration}[aout]"`,
+            `-map "[vout]" -map "[aout]"`,
+            `-c:v libx264 -preset fast -crf 18`,
+            `-pix_fmt yuv420p`,
+            `-c:a aac`,
+            `-t ${realDuration.toFixed(2)}`,
+            `"${segmentPath}"`
+          ].join(' ');
+
+          console.log(`[Worker][Job ${jobId}][Seg ${segment.id}][H3] Merging H3 video with TTS audio...`);
+          await execPromise(mergeCmd, { timeout: 120000 });
+          segment.duration = realDuration;
+
+          if (fs.existsSync(tempImgPath)) fs.unlinkSync(tempImgPath);
+          if (fs.existsSync(tempH3VideoPath)) fs.unlinkSync(tempH3VideoPath);
           if (fs.existsSync(tempTtsPath)) fs.unlinkSync(tempTtsPath);
         } else if (mode === 'image_zoom') {
           // ── 免費生圖平移縮放模式 (Flux + FFmpeg Ken Burns Effect) ──
