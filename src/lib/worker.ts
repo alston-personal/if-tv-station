@@ -910,14 +910,22 @@ async function processJob(jobId: string) {
                     || !streams.includes('video') || !streams.includes('audio')) {
                   throw new Error('H3 native spoken outro missing full-length audiovisual output');
                 }
+                // Render exact Traditional Chinese brand copy deterministically.
+                // Do not ask H3 to hallucinate text into the mascot's face.
+                if (!fs.existsSync(IF_TV_FONT_PATH)) {
+                  throw new Error('Approved Traditional Chinese font missing for IF TV title');
+                }
+                const brandTextPath = path.join('/tmp', `iftv_h3_brand_${jobId}_${segment.id}.txt`);
+                fs.writeFileSync(brandTextPath, '如果電視', 'utf8');
                 await execPromise([
                   '/usr/bin/ffmpeg -v error -y',
                   `-i "${rawVideo}"`,
-                  '-vf "scale=1920:1080:flags=lanczos,fps=24"',
+                  `-vf "scale=1920:1080:flags=lanczos,fps=24,drawtext=fontfile='${IF_TV_FONT_PATH}':textfile='${brandTextPath}':fontcolor=white:fontsize=76:box=1:boxcolor=black@0.60:boxborderw=20:x=(w-text_w)/2:y=h-text_h-90:enable='gte(t,5.50)'" `,
                   '-map 0:v:0 -map 0:a:0',
                   '-c:v libx264 -pix_fmt yuv420p -crf 18 -c:a aac',
                   `-t ${duration.toFixed(2)} "${segmentPath}"`
                 ].join(' '), { timeout: 180000 });
+                if (fs.existsSync(brandTextPath)) fs.unlinkSync(brandTextPath);
                 if (!fs.existsSync(segmentPath) || fs.statSync(segmentPath).size < 10000) {
                   throw new Error('Native H3 spoken outro export missing');
                 }
