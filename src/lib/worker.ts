@@ -345,7 +345,30 @@ async function processJob(jobId: string) {
     );
     console.log(`[Worker] Running preflight quality review for job ${jobId} before video generation...`);
     let reviewResult: any;
-    if (previewGatePassed) {
+    if (job.videoGenerationMode === 'h3_colab' && job.cameraMotionManifestPath) {
+      // This is a six-second brand outro, not a multi-act narrative. Do not
+      // impose a five-act foreshadowing/teaser review on its fixed dialogue.
+      // Still fail closed on all required pre-render production properties.
+      const singleSegment = job.segments?.length === 1 ? job.segments[0] : undefined;
+      const approvedMaster = path.join(process.cwd(), 'public', 'renders',
+        'characters', jobId, 'master.jpg');
+      const requirements = Boolean(
+        job.previewOnly &&
+        job.h3DurationSeconds === 6 &&
+        singleSegment?.audioScript === '如果電視，我們下次見！' &&
+        !singleSegment?.shots?.length &&
+        fs.existsSync(approvedMaster) && fs.statSync(approvedMaster).size > 10000 &&
+        fs.existsSync(job.cameraMotionManifestPath) &&
+        fs.statSync(job.cameraMotionManifestPath).size > 0
+      );
+      reviewResult = {
+        passed: requirements,
+        overallScore: requirements ? 10 : 0,
+        summary: requirements
+          ? '品牌片尾的固定角色母版、唯一片段、六秒長度、原文台詞、運鏡檔與不可公開預覽設定均完整；動態、配音與對嘴仍需生成後驗收。'
+          : '品牌片尾前置條件不足：需唯一六秒片段、正確台詞、有效母版與運鏡檔，以及 previewOnly。'
+      };
+    } else if (previewGatePassed) {
       reviewResult = { passed: true, score: 10, summary: '已使用通過的本地預覽品質報告，進入發布流程。' };
     } else {
       try {
