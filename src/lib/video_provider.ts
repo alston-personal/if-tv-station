@@ -16,6 +16,8 @@ export interface VideoProviderRequest {
   jobId?: string;
   segmentId?: string | number;
   onProgress?: (message: string) => void;
+  /** Optional authorized production manifest. Compiled by AgentOS shared camera IR. */
+  cameraMotionManifestPath?: string;
 }
 
 function requireFile(filePath: string, label: string) {
@@ -57,7 +59,48 @@ export async function generateVideoWithProvider(request: VideoProviderRequest): 
   const outputDir = path.join(workDir, 'outputs');
   fs.mkdirSync(outputDir, { recursive: true });
 
-  fs.writeFileSync(promptPath, request.prompt, 'utf8');
+  let generatedPrompt = request.prompt;
+  if (request.cameraMotionManifestPath) {
+    // Reuse the MERGED AgentOS Camera Motion v1 compiler, not a second IFTV parser.
+    // A missing/stale shared runtime is a hard failure rather than silently dropping
+    // camera directions. The compiler validates shot IDs, motion schema and ordering.
+    requireFile(request.cameraMotionManifestPath, 'camera motion manifest');
+    const cameraCompiler = process.env.AGENTOS_CAMERA_MOTION_COMPILER
+      || path.join(process.env.AGENTOS_HOME || '/home/ubuntu/agentmanager',
+        'agentos_node', 'vision_studio_camera.py');
+    requireFile(cameraCompiler, 'AgentOS camera motion compiler');
+    const cameraPython = process.env.AGENTOS_CAMERA_MOTION_PYTHON
+      || process.env.MINIMAX_H3_PYTHON || 'python3';
+    const { stdout: cameraDirections } = await execFileAsync(
+      cameraPython, [cameraCompiler, request.cameraMotionManifestPath], {
+        timeout: 30_000,
+        maxBuffer: 128 * 1024,
+        env: process.env
+      }
+    );
+    const directions = cameraDirections.trim().split('\\n').filter(Boolean);
+    const ids = new Set<string>();
+    if (!directions.length || directions.some((line) => {
+      const tab = line.indexOf('\\t');
+      const id = tab > 0 ? line.slice(0, tab) : '';
+      const motion = tab > 0 ? line.slice(tab + 1) : '';
+      if (!/^[a-zA-Z0-9_-]+$/.test(id) || ids.has(id) ||
+          !motion.startsWith('Camera direction: ') || motion.includes('\\n')) {
+        return true;
+      }
+      ids.add(id);
+      return false;
+    })) {
+      throw new Error('AgentOS camera motion compiler returned invalid directions');
+    }
+    generatedPrompt += '\\n\\nCamera choreography (ordered beats; preserve one character identity):\\n'
+      + directions.map((line) => {
+        const [shotId, instruction] = line.split('\\t', 2);
+        return shotId + ': ' + instruction;
+      }).join('\\n');
+    request.onProgress?.('AgentOS camera motion IR compiled into H3 prompt');
+  }
+  fs.writeFileSync(promptPath, generatedPrompt, 'utf8');
   fs.writeFileSync(manifestPath, JSON.stringify({
     jobs: [{
       title: `iftv_${jobId}_${segmentId}`,
