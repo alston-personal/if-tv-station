@@ -50,8 +50,9 @@ const SEG_DURATION = 8;
 const SEG_FPS = 25;
 const SEG_FRAMES = SEG_DURATION * SEG_FPS; // 200 frames
 
-async function generateTtsSafe(text: string, outputPath: string) {
+async function generateTtsSafe(text: string, outputPath: string, requireSpeech = false) {
   if (!text || text.trim() === '') {
+    if (requireSpeech) throw new Error('H3 narration text is required for speaking video');
     console.log(`[Worker] TTS text is empty, generating silence.`);
     const silenceCmd = `/usr/bin/ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=stereo -t 8 "${outputPath}"`;
     await execPromise(silenceCmd);
@@ -68,6 +69,7 @@ async function generateTtsSafe(text: string, outputPath: string) {
       throw new Error('Generated TTS file is empty or missing.');
     }
   } catch (err) {
+    if (requireSpeech) throw new Error('H3 Taiwan-Mandarin speech synthesis failed', { cause: err });
     console.warn('[Worker] edge-tts failed or timed out, falling back to silence:', err);
     const silenceCmd = `/usr/bin/ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=stereo -t 8 "${outputPath}"`;
     await execPromise(silenceCmd);
@@ -245,7 +247,7 @@ async function processJob(jobId: string) {
           });
 
           console.log(`[Worker][Job ${jobId}][Seg ${segment.id}][H3] Generating TTS voiceover...`);
-          await generateTtsSafe(segment.audioScript, tempTtsPath);
+          await generateTtsSafe(segment.audioScript, tempTtsPath, true);
           const speechDuration = await getAudioDuration(tempTtsPath);
           // When opting into a fixed-duration outro, do not accidentally pad
           // or truncate narration behind the final frame.
