@@ -58,6 +58,8 @@ jobs:
           grep -Fq "job.previewOnly = true" src/app/api/generate/route.ts
           grep -Fq "job.h3DurationSeconds = 6" src/app/api/generate/route.ts
           grep -Fq "let mode = job.videoGenerationMode || process.env.VIDEO_GENERATION_MODE" src/lib/worker.ts
+      - name: Build full IFTV application
+        run: npm run build
       - name: Verify unauthorized or unprepared outro request cannot enqueue a Job
         run: |
           set -euo pipefail
@@ -85,5 +87,3 @@ jobs:
             'http://127.0.0.1:3471/api/generate')
           test "$unprepared" = 503
           if [ -f /tmp/iftv-before.json ]; then cmp /tmp/iftv-before.json jobs.json; else test ! -e jobs.json; fi
-      - name: Build full IFTV application
-        run: npm run build
