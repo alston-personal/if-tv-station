@@ -17,6 +17,7 @@ import {
   IF_TV_YOUTUBE_UPLOADER_SCRIPT,
 } from './paths';
 import { runQualityGate } from './quality_gate';
+import { generateVideoWithProvider } from './video_provider';
 
 const execPromise = promisify(exec);
 
@@ -110,8 +111,9 @@ const SEG_DURATION = 8;
 const SEG_FPS = 25;
 const SEG_FRAMES = SEG_DURATION * SEG_FPS; // 200 frames
 
-async function generateTtsSafe(text: string, outputPath: string) {
+async function generateTtsSafe(text: string, outputPath: string, requireSpeech = false) {
   if (!text || text.trim() === '') {
+    if (requireSpeech) throw new Error('H3 speaking video requires nonempty dialogue');
     console.log(`[Worker] TTS text is empty, generating silence.`);
     const silenceCmd = `/usr/bin/ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=stereo -t 4 "${outputPath}"`;
     await execPromise(silenceCmd);
@@ -120,6 +122,7 @@ async function generateTtsSafe(text: string, outputPath: string) {
   try {
     const { cleanScript } = cleanAudioScriptForTTS(text);
     if (!cleanScript || cleanScript.trim() === '') {
+      if (requireSpeech) throw new Error('H3 spoken dialogue became empty after cleaning');
       console.log(`[Worker] Cleaned TTS text is empty (only contained SFX tags), generating silence.`);
       const silenceCmd = `/usr/bin/ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=stereo -t 2 "${outputPath}"`;
       await execPromise(silenceCmd);
@@ -142,6 +145,7 @@ async function generateTtsSafe(text: string, outputPath: string) {
       throw new Error('Generated TTS file is empty or missing.');
     }
   } catch (err) {
+    if (requireSpeech) throw new Error('H3 Taiwan Mandarin TTS failure: silent fallback disabled', { cause: err });
     console.warn('[Worker] Edge-TTS failed or timed out, generating silence fallback:', err);
     const silenceCmd = `/usr/bin/ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=stereo -t 4 "${outputPath}"`;
     await execPromise(silenceCmd);
@@ -425,7 +429,7 @@ async function processJob(jobId: string) {
         const tempTtsPath = path.join('/tmp', tempTtsName);
 
         // 如果該 segment 有細分的 shots 且非靜態說書模式 (image_zoom)，使用方案 A 多鏡頭合成邏輯
-        if (segment.shots && Array.isArray(segment.shots) && segment.shots.length > 0 && mode !== 'image_zoom') {
+        if (segment.shots && Array.isArray(segment.shots) && segment.shots.length > 0 && mode !== 'image_zoom' && mode !== 'h3_colab') {
           console.log(`[Worker][Job ${jobId}][Seg ${segment.id}] Processing in Multi-Shot mode with ${segment.shots.length} shots...`);
           
           // 1. 先生成旁白音檔並取得精確長度
@@ -806,7 +810,68 @@ async function processJob(jobId: string) {
           }
 
           if (!veoSucceeded) {
-            if (mode === 'image_zoom' || runImageZoomFallback) {
+            if (mode === 'h3_colab') {
+              // Reuse the existing AgentOS H3/Colab provider. Four camera beats
+              // are ONE continuous animated segment, not four separate stills.
+              const cameraManifest = process.env.IFTV_CAMERA_MOTION_MANIFEST;
+              const fixedDurationEnv = process.env.IFTV_H3_DURATION_SECONDS;
+              const duration = fixedDurationEnv === undefined ? SEG_DURATION : Number(fixedDurationEnv);
+              if (!Number.isInteger(duration) || duration < 4 || duration > 15) {
+                throw new Error('IFTV_H3_DURATION_SECONDS must be 4..15 whole seconds');
+              }
+              if (cameraManifest && (totalSegments !== 1 || !job.previewOnly)) {
+                throw new Error('IFTV camera outro requires ONE segment and previewOnly=true');
+              }
+              if (cameraManifest && segment.audioScript.trim() !== '如果電視，我們下次見！') {
+                throw new Error('IFTV outro requires exact spoken line');
+              }
+              const masterImage = path.join(process.cwd(), 'public', 'renders',
+                'characters', jobId, 'master.jpg');
+              const tempImage = path.join('/tmp', `iftv_h3_ref_${jobId}_${segment.id}.jpg`);
+              if (cameraManifest) {
+                // No fallback to an independently invented mascot image.
+                if (!fs.existsSync(masterImage) || fs.statSync(masterImage).size === 0) {
+                  throw new Error('IFTV canonical master character image missing');
+                }
+              } else {
+                await generateImageSegment(segment.visualPrompt, style, character, tempImage);
+              }
+              const referenceImage = cameraManifest ? masterImage : tempImage;
+              const rawVideo = path.join('/tmp', `iftv_h3_raw_${jobId}_${segment.id}.mp4`);
+              const h3Prompt = [
+                'subject_definitions: Match <Picture 1> exactly for face, ears, eyes, markings, wardrobe, and tail.',
+                `summary: ${segment.visualPrompt}`,
+                'retention_analysis: Lock canonical character identity, no morphing, no fake player chrome.',
+                'detailed_description: ONE continuous studio character shot with natural mouth, head and paw movements.',
+                'overall_soundscape: Dialogue will be attached by IFTV; show visibly articulated speech.',
+                'non_diegetic_music: None.'
+              ].join('\\n\\n');
+              await generateVideoWithProvider({
+                provider: 'h3_colab', prompt: h3Prompt,
+                referenceImages: [referenceImage], durationSeconds: duration,
+                cameraMotionManifestPath: cameraManifest,
+                outputPath: rawVideo, jobId, segmentId: segment.id,
+                onProgress: (message) => console.log(`[IFTV H3] ${message}`)
+              });
+              await generateTtsSafe(segment.audioScript, tempTtsPath, true);
+              const speechDuration = await getAudioDuration(tempTtsPath);
+              if (fixedDurationEnv && speechDuration > duration - 0.15) {
+                throw new Error('H3 spoken line exceeds fixed duration');
+              }
+              const resultDuration = fixedDurationEnv ? duration : speechDuration + 0.5;
+              await execPromise([
+                '/usr/bin/ffmpeg -y',
+                `-i "${rawVideo}" -i "${tempTtsPath}"`,
+                '-filter_complex "[0:v]scale=1920:1080:flags=lanczos,tpad=stop_mode=clone:stop_duration=8[v];[1:a]apad[a]"',
+                '-map "[v]" -map "[a]"',
+                '-c:v libx264 -pix_fmt yuv420p -r 24 -crf 18 -c:a aac',
+                `-t ${resultDuration.toFixed(2)} "${segmentPath}"`
+              ].join(' '), { timeout: 180000 });
+              segment.duration = resultDuration;
+              for (const tempFile of [rawVideo, tempTtsPath, tempImage]) {
+                if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+              }
+            } else if (mode === 'image_zoom' || runImageZoomFallback) {
               // ── 免費生圖平移縮放模式 (Flux + FFmpeg Ken Burns Effect) ──
               const tempImgName = `img_${jobId}_seg_${segment.id}.jpg`;
               const tempImgPath = path.join('/tmp', tempImgName);
@@ -968,6 +1033,26 @@ async function processJob(jobId: string) {
         }
         return;
       }
+    }
+
+    // A six-second Colab outro is a standalone preview. Do NOT append default
+    // intro/outro assets or accidentally trigger a public YouTube upload.
+    if (process.env.VIDEO_GENERATION_MODE === 'h3_colab' &&
+        process.env.IFTV_CAMERA_MOTION_MANIFEST && job.previewOnly &&
+        job.segments?.length === 1) {
+      const source = path.join(IF_TV_RENDER_DIR, `job_${jobId}_seg_${job.segments[0].id}.mp4`);
+      const outputName = `job_${jobId}_final.mp4`;
+      const output = path.join(IF_TV_RENDER_DIR, outputName);
+      if (!fs.existsSync(source) || fs.statSync(source).size === 0) {
+        throw new Error('Standalone H3 outro missing generated MP4');
+      }
+      fs.copyFileSync(source, output);
+      job.finalVideoUrl = `/renders/${outputName}`;
+      job.status = 'preview_ready';
+      job.progress = 100;
+      saveJob(job);
+      console.log('[IFTV H3] Standalone camera outro available for QA; auto-publish disabled');
+      return;
     }
 
     // ──────────────────────────────────────────────────────────────
