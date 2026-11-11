@@ -5,6 +5,7 @@ import { promisify } from 'util';
 import { getJob, saveJob, Job, Segment } from './db';
 import { generateVideoSegment, generateWittyMetadata, translateSubtitles, generateImageSegment, generateFreeVideoSegment } from './gemini';
 import { generateVideoViaBrowser } from './gemini_browser';
+import { generateVideoWithProvider } from './video_provider';
 
 const execPromise = promisify(exec);
 
@@ -49,8 +50,9 @@ const SEG_DURATION = 8;
 const SEG_FPS = 25;
 const SEG_FRAMES = SEG_DURATION * SEG_FPS; // 200 frames
 
-async function generateTtsSafe(text: string, outputPath: string) {
+async function generateTtsSafe(text: string, outputPath: string, requireSpeech = false) {
   if (!text || text.trim() === '') {
+    if (requireSpeech) throw new Error('H3 narration text is required for speaking video');
     console.log(`[Worker] TTS text is empty, generating silence.`);
     const silenceCmd = `/usr/bin/ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=stereo -t 8 "${outputPath}"`;
     await execPromise(silenceCmd);
@@ -67,6 +69,7 @@ async function generateTtsSafe(text: string, outputPath: string) {
       throw new Error('Generated TTS file is empty or missing.');
     }
   } catch (err) {
+    if (requireSpeech) throw new Error('H3 Taiwan-Mandarin speech synthesis failed', { cause: err });
     console.warn('[Worker] edge-tts failed or timed out, falling back to silence:', err);
     const silenceCmd = `/usr/bin/ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=stereo -t 8 "${outputPath}"`;
     await execPromise(silenceCmd);
@@ -193,6 +196,86 @@ async function processJob(jobId: string) {
 
           // 清理臨時檔
           if (fs.existsSync(tempVeoVideoPath)) fs.unlinkSync(tempVeoVideoPath);
+          if (fs.existsSync(tempTtsPath)) fs.unlinkSync(tempTtsPath);
+        } else if (mode === 'h3_colab') {
+          // ── AgentOS provider mode: MiniMax H3 via Google Colab ─────────────
+          // Generate a stable reference image first, then animate it with H3.
+          const tempImgPath = path.join('/tmp', `h3_ref_${jobId}_seg_${segment.id}.jpg`);
+          const tempH3VideoPath = path.join('/tmp', `h3_raw_${jobId}_seg_${segment.id}.mp4`);
+
+          console.log(`[Worker][Job ${jobId}][Seg ${segment.id}][H3] Generating reference image...`);
+          await generateImageSegment(
+            segment.visualPrompt,
+            style,
+            character,
+            tempImgPath
+          );
+
+          const h3Prompt = [
+            `subject_definitions:\nMain subject and visual identity must match <Picture 1>. ${character}`,
+            `summary:\n${segment.visualPrompt}`,
+            `retention_analysis:\nPreserve face, body proportions, clothing, colors, and overall identity from <Picture 1> while adding natural motion.`,
+            `detailed_description:\n[Shot 1] ${segment.visualPrompt}. Cinematic natural motion, coherent anatomy, stable identity, no abrupt appearance changes.`,
+            `overall_soundscape:\nNo generated dialogue is required; IFTV adds narration in post-production.`,
+            `non_diegetic_music:\nNone; IFTV handles final audio.`
+          ].join('\n\n');
+
+          // Explicit opt-in; never apply one outro camera plan to every segment.
+          const cameraManifest = process.env.IFTV_CAMERA_MOTION_MANIFEST;
+          if (cameraManifest && totalSegments !== 1) {
+            throw new Error('IFTV camera-motion manifest requires a single H3 segment');
+          }
+          const configuredH3Duration = process.env.IFTV_H3_DURATION_SECONDS;
+          const h3Duration = configuredH3Duration === undefined
+            ? SEG_DURATION : Number(configuredH3Duration);
+          if (!Number.isInteger(h3Duration) || h3Duration < 4 || h3Duration > 15) {
+            throw new Error('IFTV_H3_DURATION_SECONDS must be an integer from 4 to 15');
+          }
+
+          await generateVideoWithProvider({
+            provider: 'h3_colab',
+            prompt: h3Prompt,
+            referenceImages: [tempImgPath],
+            durationSeconds: h3Duration,
+            cameraMotionManifestPath: cameraManifest,
+            outputPath: tempH3VideoPath,
+            jobId,
+            segmentId: segment.id,
+            onProgress: (msg) => {
+              console.log(`[Worker][Job ${jobId}][Seg ${segment.id}][H3] ${msg}`);
+            }
+          });
+
+          console.log(`[Worker][Job ${jobId}][Seg ${segment.id}][H3] Generating TTS voiceover...`);
+          await generateTtsSafe(segment.audioScript, tempTtsPath, true);
+          const speechDuration = await getAudioDuration(tempTtsPath);
+          // When opting into a fixed-duration outro, do not accidentally pad
+          // or truncate narration behind the final frame.
+          if (configuredH3Duration && speechDuration > h3Duration - 0.15) {
+            throw new Error('Taiwan-Mandarin speech exceeds configured H3 duration');
+          }
+          const realDuration = configuredH3Duration
+            ? h3Duration : speechDuration + 0.5;
+
+          const mergeCmd = [
+            `/usr/bin/ffmpeg -y`,
+            `-i "${tempH3VideoPath}"`,
+            `-i "${tempTtsPath}"`,
+            `-filter_complex "[0:v]scale=1920:1080:flags=lanczos,tpad=stop_mode=clone:stop_duration=8[vout];[1:a]apad=whole_dur=${realDuration}[aout]"`,
+            `-map "[vout]" -map "[aout]"`,
+            `-c:v libx264 -preset fast -crf 18`,
+            `-pix_fmt yuv420p`,
+            `-c:a aac`,
+            `-t ${realDuration.toFixed(2)}`,
+            `"${segmentPath}"`
+          ].join(' ');
+
+          console.log(`[Worker][Job ${jobId}][Seg ${segment.id}][H3] Merging H3 video with TTS audio...`);
+          await execPromise(mergeCmd, { timeout: 120000 });
+          segment.duration = realDuration;
+
+          if (fs.existsSync(tempImgPath)) fs.unlinkSync(tempImgPath);
+          if (fs.existsSync(tempH3VideoPath)) fs.unlinkSync(tempH3VideoPath);
           if (fs.existsSync(tempTtsPath)) fs.unlinkSync(tempTtsPath);
         } else if (mode === 'image_zoom') {
           // ── 免費生圖平移縮放模式 (Flux + FFmpeg Ken Burns Effect) ──

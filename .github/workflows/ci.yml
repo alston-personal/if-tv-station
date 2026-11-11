@@ -1,0 +1,105 @@
+name: IFTV CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type-check standalone H3 Colab provider
+        run: npx tsc --noEmit --skipLibCheck --esModuleInterop --target es2020 --module nodenext --moduleResolution nodenext src/lib/video_provider.ts
+      - name: Lint (legacy debt is reported but does not hide build errors)
+        continue-on-error: true
+        run: npm run lint
+      - run: npm run build
+
+  full-source-integration:
+    name: Build full Worker with existing H3+Camera graft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wip/2026-11-06
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type-check H3 provider on complete source
+        run: npx tsc --noEmit --skipLibCheck --esModuleInterop --target es2020 --module nodenext --moduleResolution nodenext src/lib/video_provider.ts
+      - name: Assert lip-sync inference is required for H3 outro
+        run: |
+          grep -Fq "await syncLipMovementStrict(rawVideo, timelineSpeech, syncedVideo, resultDuration)" src/lib/worker.ts
+          grep -Fq "adelay=" src/lib/worker.ts
+          grep -Fq "Strict lip-sync provider truncated the requested scene" src/lib/lip_sync_util.ts
+          grep -Fq "export async function syncLipMovementStrict(" src/lib/lip_sync_util.ts
+          grep -Fq "IFTV camera outro requires ONE segment and previewOnly=true" src/lib/worker.ts
+      - name: Verify pinned Oracle ADC and native H3 spoken video wiring
+        run: |
+          grep -Fq "/home/ubuntu/agent-data/providers/colab/runtime/current" src/lib/video_provider.ts
+          grep -Fq "COLAB_AUTH: 'adc'" src/lib/video_provider.ts
+          grep -Fq "<d>[Chinese] 如果電視，我們下次見！</d>" src/lib/worker.ts
+          grep -Fq "if (cameraManifest)" src/lib/worker.ts
+          grep -Fq "Native H3 spoken outro export missing" src/lib/worker.ts
+          grep -Fq "fs.writeFileSync(brandTextPath, '如果電視'" src/lib/worker.ts
+      - name: Assert final H3 MP4 requires technical and editorial QA
+        run: |
+          grep -Fq "const durationPass = Number.isFinite(observedDuration)" src/lib/worker.ts
+          grep -Fq "visual?.codec_name === 'h264'" src/lib/worker.ts
+          grep -Fq "audio?.codec_name === 'aac'" src/lib/worker.ts
+          grep -Fq "speech_zh_tw_editorial:" src/lib/worker.ts
+          grep -Fq "lip_sync_editorial:" src/lib/worker.ts
+          grep -Fq "job.progress = 85" src/lib/worker.ts
+      - name: Verify protected six-second outro Job contract
+        run: |
+          grep -Fq "productionTemplate === 'iftv-leopardcat-outro-v1'" src/app/api/generate/route.ts
+          grep -Fq "IFTV_OUTRO_JOB_TOKEN" src/app/api/generate/route.ts
+          grep -Fq "IFTV_LEOPARDCAT_MASTER_IMAGE" src/app/api/generate/route.ts
+          grep -Fq "job.videoGenerationMode = 'h3_colab'" src/app/api/generate/route.ts
+          grep -Fq "job.previewOnly = true" src/app/api/generate/route.ts
+          grep -Fq "job.h3DurationSeconds = 6" src/app/api/generate/route.ts
+          grep -Fq "let mode = job.videoGenerationMode || process.env.VIDEO_GENERATION_MODE" src/lib/worker.ts
+      - name: Build full IFTV application
+        run: npm run build
+      - name: Verify unauthorized or unprepared outro request cannot enqueue a Job
+        run: |
+          set -euo pipefail
+          export IFTV_OUTRO_JOB_TOKEN="ci-only-not-a-production-secret"
+          unset IFTV_LEOPARDCAT_MASTER_IMAGE
+          npm run start -- -p 3471 > /tmp/iftv-ci-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 30); do
+            if curl --silent --output /dev/null "http://127.0.0.1:3471/iftv/api/jobs"; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then cat /tmp/iftv-ci-server.log; exit 1; fi
+          test ! -e jobs.json || cp jobs.json /tmp/iftv-before.json
+          unauthorized=$(curl --silent --output /tmp/iftv-noauth.json --write-out '%{http_code}' \
+            -X POST -H 'Content-Type: application/json' \
+            --data '{"productionTemplate":"iftv-leopardcat-outro-v1"}' \
+            'http://127.0.0.1:3471/iftv/api/generate')
+          test "$unauthorized" = 403
+          unprepared=$(curl --silent --output /tmp/iftv-unprepared.json --write-out '%{http_code}' \
+            -X POST -H 'Content-Type: application/json' \
+            -H 'x-iftv-outro-token: ci-only-not-a-production-secret' \
+            --data '{"productionTemplate":"iftv-leopardcat-outro-v1"}' \
+            'http://127.0.0.1:3471/iftv/api/generate')
+          test "$unprepared" = 503
+          if [ -f /tmp/iftv-before.json ]; then cmp /tmp/iftv-before.json jobs.json; else test ! -e jobs.json; fi
