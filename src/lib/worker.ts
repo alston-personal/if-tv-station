@@ -857,15 +857,28 @@ async function processJob(jobId: string) {
               });
               await generateTtsSafe(segment.audioScript, tempTtsPath, true);
               const speechDuration = await getAudioDuration(tempTtsPath);
-              if (fixedDurationEnv && speechDuration > duration - 0.15) {
-                throw new Error('H3 spoken line exceeds fixed duration');
+              const leadInSeconds = cameraManifest ? 0.8 : 0;
+              const endHoldSeconds = cameraManifest ? 0.5 : 0.15;
+              if (fixedDurationEnv && speechDuration + leadInSeconds + endHoldSeconds > duration) {
+                throw new Error('H3 spoken line does not fit the intro/speech/outro timeline');
               }
-              const resultDuration = fixedDurationEnv ? duration : speechDuration + 0.5;
+              const resultDuration = fixedDurationEnv
+                ? duration : speechDuration + leadInSeconds + endHoldSeconds;
               const syncedVideo = path.join('/tmp', `iftv_h3_lipsynced_${jobId}_${segment.id}.mp4`);
+              const timelineSpeech = path.join('/tmp', `iftv_h3_timed_speech_${jobId}_${segment.id}.mp3`);
+              // Audio presented to the facial-motion model includes the 0.8 s
+              // intro and the silent tail. Without this, speech begins at t=0
+              // although camera directions say it starts at t=0.8.
+              await execPromise([
+                '/usr/bin/ffmpeg -v error -y',
+                `-i "${tempTtsPath}"`,
+                `-af "adelay=${Math.round(leadInSeconds * 1000)}:all=1,apad=whole_dur=${resultDuration}"`,
+                '-c:a libmp3lame -b:a 192k',
+                `-t ${resultDuration.toFixed(2)} "${timelineSpeech}"`
+              ].join(' '), { timeout: 60000 });
               // The existing lip-sync helper can fall back to mere audio muxing.
               // For this spoken outro a real lip-sync model is mandatory.
-              // Abort rendering if Wav2Lip inference is unavailable/unsuitable.
-              await syncLipMovementStrict(rawVideo, tempTtsPath, syncedVideo);
+              await syncLipMovementStrict(rawVideo, timelineSpeech, syncedVideo, resultDuration);
               await execPromise([
                 '/usr/bin/ffmpeg -v error -y',
                 `-i "${syncedVideo}"`,
@@ -878,7 +891,7 @@ async function processJob(jobId: string) {
                 throw new Error('IFTV strict H3 lip-sync export is missing');
               }
               segment.duration = resultDuration;
-              for (const tempFile of [rawVideo, syncedVideo, tempTtsPath, tempImage]) {
+              for (const tempFile of [rawVideo, syncedVideo, timelineSpeech, tempTtsPath, tempImage]) {
                 if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
               }
             } else if (mode === 'image_zoom' || runImageZoomFallback) {
