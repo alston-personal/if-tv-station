@@ -373,6 +373,7 @@ async function processJob(jobId: string) {
     }
 
     const totalSegments = job.segments!.length;
+    let h3CameraOutroActive = false;
     let style = job.worldInfo?.visualStyle || '';
     if (typeof style === 'object' && style !== null) {
       const sObj = style as any;
@@ -822,6 +823,7 @@ async function processJob(jobId: string) {
               if (cameraManifest && (totalSegments !== 1 || !job.previewOnly)) {
                 throw new Error('IFTV camera outro requires ONE segment and previewOnly=true');
               }
+              if (cameraManifest) h3CameraOutroActive = true;
               if (cameraManifest && segment.audioScript.trim() !== '如果電視，我們下次見！') {
                 throw new Error('IFTV outro requires exact spoken line');
               }
@@ -845,7 +847,7 @@ async function processJob(jobId: string) {
                 'detailed_description: ONE continuous studio character shot with natural mouth, head and paw movements.',
                 'overall_soundscape: Dialogue will be attached by IFTV; show visibly articulated speech.',
                 'non_diegetic_music: None.'
-              ].join('\\n\\n');
+              ].join('\n\n');
               await generateVideoWithProvider({
                 provider: 'h3_colab', prompt: h3Prompt,
                 referenceImages: [referenceImage], durationSeconds: duration,
@@ -1037,8 +1039,7 @@ async function processJob(jobId: string) {
 
     // A six-second Colab outro is a standalone preview. Do NOT append default
     // intro/outro assets or accidentally trigger a public YouTube upload.
-    if (process.env.VIDEO_GENERATION_MODE === 'h3_colab' &&
-        process.env.IFTV_CAMERA_MOTION_MANIFEST && job.previewOnly &&
+    if (h3CameraOutroActive && job.previewOnly &&
         job.segments?.length === 1) {
       const source = path.join(IF_TV_RENDER_DIR, `job_${jobId}_seg_${job.segments[0].id}.mp4`);
       const outputName = `job_${jobId}_final.mp4`;
