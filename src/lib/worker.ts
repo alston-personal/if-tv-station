@@ -7,7 +7,7 @@ import { generateVideoSegment, generateWittyMetadata, translateSubtitles, genera
 import { generateMasterCharacterImage } from './character_visualizer';
 import { generateVideoViaBrowser } from './gemini_browser';
 import { getEditorTimingAdvice, preflightQualityReview, selectBGM } from './creative_roles';
-import { syncLipMovement } from './lip_sync_util';
+import { syncLipMovement, syncLipMovementStrict } from './lip_sync_util';
 import {
   AGENTMANAGER_ENV_PATH,
   IF_TV_FONT_PATH,
@@ -861,16 +861,24 @@ async function processJob(jobId: string) {
                 throw new Error('H3 spoken line exceeds fixed duration');
               }
               const resultDuration = fixedDurationEnv ? duration : speechDuration + 0.5;
+              const syncedVideo = path.join('/tmp', `iftv_h3_lipsynced_${jobId}_${segment.id}.mp4`);
+              // The existing lip-sync helper can fall back to mere audio muxing.
+              // For this spoken outro a real lip-sync model is mandatory.
+              // Abort rendering if Wav2Lip inference is unavailable/unsuitable.
+              await syncLipMovementStrict(rawVideo, tempTtsPath, syncedVideo);
               await execPromise([
-                '/usr/bin/ffmpeg -y',
-                `-i "${rawVideo}" -i "${tempTtsPath}"`,
-                '-filter_complex "[0:v]scale=1920:1080:flags=lanczos,tpad=stop_mode=clone:stop_duration=8[v];[1:a]apad[a]"',
+                '/usr/bin/ffmpeg -v error -y',
+                `-i "${syncedVideo}"`,
+                '-filter_complex "[0:v]scale=1920:1080:flags=lanczos,tpad=stop_mode=clone:stop_duration=8,fps=24[v];[0:a]apad[a]"',
                 '-map "[v]" -map "[a]"',
                 '-c:v libx264 -pix_fmt yuv420p -r 24 -crf 18 -c:a aac',
                 `-t ${resultDuration.toFixed(2)} "${segmentPath}"`
               ].join(' '), { timeout: 180000 });
+              if (!fs.existsSync(segmentPath) || fs.statSync(segmentPath).size < 10000) {
+                throw new Error('IFTV strict H3 lip-sync export is missing');
+              }
               segment.duration = resultDuration;
-              for (const tempFile of [rawVideo, tempTtsPath, tempImage]) {
+              for (const tempFile of [rawVideo, syncedVideo, tempTtsPath, tempImage]) {
                 if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
               }
             } else if (mode === 'image_zoom' || runImageZoomFallback) {
