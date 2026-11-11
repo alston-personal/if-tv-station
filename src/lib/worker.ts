@@ -407,7 +407,7 @@ async function processJob(jobId: string) {
       job.progress = Math.round(15 + (i / totalSegments) * 50); // 15% ~ 65%
       saveJob(job);
 
-      let mode = process.env.VIDEO_GENERATION_MODE;
+      let mode = job.videoGenerationMode || process.env.VIDEO_GENERATION_MODE;
       if (!mode && fs.existsSync(AGENTMANAGER_ENV_PATH)) {
           try {
             const content = fs.readFileSync(AGENTMANAGER_ENV_PATH, 'utf8');
@@ -814,11 +814,14 @@ async function processJob(jobId: string) {
             if (mode === 'h3_colab') {
               // Reuse the existing AgentOS H3/Colab provider. Four camera beats
               // are ONE continuous animated segment, not four separate stills.
-              const cameraManifest = process.env.IFTV_CAMERA_MOTION_MANIFEST;
-              const fixedDurationEnv = process.env.IFTV_H3_DURATION_SECONDS;
+              const cameraManifest = job.cameraMotionManifestPath || process.env.IFTV_CAMERA_MOTION_MANIFEST;
+              const fixedDurationEnv = job.h3DurationSeconds?.toString() || process.env.IFTV_H3_DURATION_SECONDS;
               const duration = fixedDurationEnv === undefined ? SEG_DURATION : Number(fixedDurationEnv);
               if (!Number.isInteger(duration) || duration < 4 || duration > 15) {
                 throw new Error('IFTV_H3_DURATION_SECONDS must be 4..15 whole seconds');
+              }
+              if (cameraManifest && job.videoGenerationMode !== 'h3_colab' && !process.env.IFTV_CAMERA_MOTION_MANIFEST) {
+                throw new Error('Camera manifest requires H3 job-scope mode');
               }
               if (cameraManifest && (totalSegments !== 1 || !job.previewOnly)) {
                 throw new Error('IFTV camera outro requires ONE segment and previewOnly=true');
