@@ -42,5 +42,10 @@ jobs:
       - run: npm ci
       - name: Type-check H3 provider on complete source
         run: npx tsc --noEmit --skipLibCheck --esModuleInterop --target es2020 --module nodenext --moduleResolution nodenext src/lib/video_provider.ts
+      - name: Assert lip-sync inference is required for H3 outro
+        run: |
+          grep -Fq "await syncLipMovementStrict(rawVideo, tempTtsPath, syncedVideo)" src/lib/worker.ts
+          grep -Fq "export async function syncLipMovementStrict(" src/lib/lip_sync_util.ts
+          grep -Fq "IFTV camera outro requires ONE segment and previewOnly=true" src/lib/worker.ts
       - name: Build full IFTV application
         run: npm run build
