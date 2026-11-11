@@ -218,11 +218,24 @@ async function processJob(jobId: string) {
             `non_diegetic_music:\nNone; IFTV handles final audio.`
           ].join('\n\n');
 
+          // Explicit opt-in; never apply one outro camera plan to every segment.
+          const cameraManifest = process.env.IFTV_CAMERA_MOTION_MANIFEST;
+          if (cameraManifest && totalSegments !== 1) {
+            throw new Error('IFTV camera-motion manifest requires a single H3 segment');
+          }
+          const configuredH3Duration = process.env.IFTV_H3_DURATION_SECONDS;
+          const h3Duration = configuredH3Duration === undefined
+            ? SEG_DURATION : Number(configuredH3Duration);
+          if (!Number.isInteger(h3Duration) || h3Duration < 4 || h3Duration > 15) {
+            throw new Error('IFTV_H3_DURATION_SECONDS must be an integer from 4 to 15');
+          }
+
           await generateVideoWithProvider({
             provider: 'h3_colab',
             prompt: h3Prompt,
             referenceImages: [tempImgPath],
-            durationSeconds: SEG_DURATION,
+            durationSeconds: h3Duration,
+            cameraMotionManifestPath: cameraManifest,
             outputPath: tempH3VideoPath,
             jobId,
             segmentId: segment.id,
@@ -233,7 +246,14 @@ async function processJob(jobId: string) {
 
           console.log(`[Worker][Job ${jobId}][Seg ${segment.id}][H3] Generating TTS voiceover...`);
           await generateTtsSafe(segment.audioScript, tempTtsPath);
-          const realDuration = await getAudioDuration(tempTtsPath) + 0.5;
+          const speechDuration = await getAudioDuration(tempTtsPath);
+          // When opting into a fixed-duration outro, do not accidentally pad
+          // or truncate narration behind the final frame.
+          if (configuredH3Duration && speechDuration > h3Duration - 0.15) {
+            throw new Error('Taiwan-Mandarin speech exceeds configured H3 duration');
+          }
+          const realDuration = configuredH3Duration
+            ? h3Duration : speechDuration + 0.5;
 
           const mergeCmd = [
             `/usr/bin/ffmpeg -y`,
