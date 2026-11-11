@@ -1,0 +1,26 @@
+name: IFTV full Worker integration CI
+
+on:
+  push:
+    branches:
+      - wip/2026-11-06
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type-check shared H3 provider
+        run: npx tsc --noEmit --skipLibCheck --esModuleInterop --target es2020 --module nodenext --moduleResolution nodenext src/lib/video_provider.ts
+      - name: Full application production build
+        run: npm run build
