@@ -78,14 +78,14 @@ export async function generateVideoWithProvider(request: VideoProviderRequest): 
         env: process.env
       }
     );
-    const directions = cameraDirections.trim().split('\\n').filter(Boolean);
+    const directions = cameraDirections.trim().split('\n').filter(Boolean);
     const ids = new Set<string>();
     if (!directions.length || directions.some((line) => {
-      const tab = line.indexOf('\\t');
+      const tab = line.indexOf('\t');
       const id = tab > 0 ? line.slice(0, tab) : '';
       const motion = tab > 0 ? line.slice(tab + 1) : '';
       if (!/^[a-zA-Z0-9_-]+$/.test(id) || ids.has(id) ||
-          !motion.startsWith('Camera direction: ') || motion.includes('\\n')) {
+          !motion.startsWith('Camera direction: ') || motion.includes('\n')) {
         return true;
       }
       ids.add(id);
@@ -93,11 +93,11 @@ export async function generateVideoWithProvider(request: VideoProviderRequest): 
     })) {
       throw new Error('AgentOS camera motion compiler returned invalid directions');
     }
-    generatedPrompt += '\\n\\nCamera choreography (ordered beats; preserve one character identity):\\n'
+    generatedPrompt += '\n\nCamera choreography (ordered beats; preserve one character identity):\n'
       + directions.map((line) => {
-        const [shotId, instruction] = line.split('\\t', 2);
+        const [shotId, instruction] = line.split('\t', 2);
         return shotId + ': ' + instruction;
-      }).join('\\n');
+      }).join('\n');
     request.onProgress?.('AgentOS camera motion IR compiled into H3 prompt');
   }
   fs.writeFileSync(promptPath, generatedPrompt, 'utf8');
