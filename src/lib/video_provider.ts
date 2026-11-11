@@ -42,8 +42,9 @@ export async function generateVideoWithProvider(request: VideoProviderRequest): 
   refs.forEach((file, index) => requireFile(file, `reference image ${index + 1}`));
 
   const duration = Math.max(4, Math.min(15, Math.round(request.durationSeconds)));
+  // Match the existing AgentOS Oracle installation lane and pinned release.
   const skillDir = process.env.MINIMAX_H3_SKILL_DIR
-    || path.join(process.env.HOME || '/home/ubuntu', '.codex', 'skills', 'minimax-h3-colab');
+    || '/home/ubuntu/agent-data/providers/colab/runtime/current';
   const runner = process.env.MINIMAX_H3_RUNNER
     || path.join(skillDir, 'scripts', 'runner.py');
 
@@ -114,13 +115,23 @@ export async function generateVideoWithProvider(request: VideoProviderRequest): 
   const python = process.env.MINIMAX_H3_PYTHON || 'python3';
   const gpu = process.env.MINIMAX_H3_GPU || 'A100';
   const timeout = Number(process.env.MINIMAX_H3_TIMEOUT_SECONDS || '10800');
+  // H3's upstream runner defaults to interactive OAuth2 if unset; AgentOS
+  // Oracle uses noninteractive ADC from its existing governed bootstrap.
+  if (process.env.COLAB_AUTH && process.env.COLAB_AUTH !== 'adc') {
+    throw new Error('IFTV H3 requires noninteractive AgentOS Colab ADC');
+  }
+  const colabEnv = {
+    ...process.env,
+    COLAB_AUTH: 'adc',
+    PATH: '/home/ubuntu/.local/bin:' + (process.env.PATH || '')
+  };
 
   request.onProgress?.('Checking Colab quota and authentication...');
   await execFileAsync(python, [runner, 'usage', '--json'], {
     cwd: skillDir,
     timeout: 60_000,
     maxBuffer: 1024 * 1024,
-    env: process.env
+    env: colabEnv
   });
 
   request.onProgress?.(`Generating H3 clip on Colab (${gpu})...`);
@@ -138,7 +149,7 @@ export async function generateVideoWithProvider(request: VideoProviderRequest): 
     cwd: skillDir,
     timeout: (timeout + 120) * 1000,
     maxBuffer: 10 * 1024 * 1024,
-    env: process.env
+    env: colabEnv
   });
 
   const candidates = [
