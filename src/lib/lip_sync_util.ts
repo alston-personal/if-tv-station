@@ -214,3 +214,81 @@ async function uploadFileToTempStorage(filePath: string): Promise<string> {
   console.log(`[LipSync][Upload] Prepared public asset for API at ${publicUrl}`);
   return publicUrl;
 }
+
+
+/**
+ * Strict spoken-character lip sync for gated IFTV H3 outro previews.
+ *
+ * This deliberately does NOT call generateFreeLipSync(), which falls back to
+ * copying/muxing streams when portrait inference is unavailable. A mux is not
+ * proof that the jaw or muzzle moved in response to speech.
+ *
+ * Successful inference is still only a technical receipt; visual QA is
+ * required before calling the result broadcast-ready. Cartoon animal faces
+ * may be unsupported by the external Wav2Lip model and must fail closed.
+ */
+export async function syncLipMovementStrict(
+  videoPath: string,
+  audioPath: string,
+  outputPath: string
+): Promise<string> {
+  if (videoPath === outputPath || audioPath === outputPath) {
+    throw new Error('Strict lip-sync output path must not overwrite inputs');
+  }
+  for (const [label, filename] of [['video', videoPath], ['audio', audioPath]]) {
+    if (!fs.existsSync(filename) || fs.statSync(filename).size < 1000) {
+      throw new Error('Strict lip-sync missing ' + label + ' input');
+    }
+  }
+
+  const client = await Client.connect('fffiloni/Wav2Lip');
+  const sourceVideo = new Blob([fs.readFileSync(videoPath)], { type: 'video/mp4' });
+  const speechAudio = new Blob([fs.readFileSync(audioPath)], { type: 'audio/mpeg' });
+  const result = await client.predict('/predict', { face: sourceVideo, audio: speechAudio });
+  const item = (result.data as any)?.[0];
+  const url = item?.url || (typeof item === 'string' ? item : null);
+  if (typeof url !== 'string' || !/^https:\/\//i.test(url)) {
+    throw new Error('Strict lip-sync provider returned no HTTPS video result');
+  }
+  const downloadPath = outputPath + '.wav2lip.tmp.mp4';
+  const verifiedPath = outputPath + '.audio.tmp.mp4';
+  try {
+    const response = await axios({ method: 'get', url, responseType: 'stream', timeout: 120000 });
+    const writer = fs.createWriteStream(downloadPath);
+    response.data.pipe(writer);
+    await new Promise<void>((resolve, reject) => {
+      writer.once('finish', resolve);
+      writer.once('error', reject);
+      response.data.once('error', reject);
+    });
+    if (!fs.existsSync(downloadPath) || fs.statSync(downloadPath).size < 10000) {
+      throw new Error('Strict lip-sync provider delivered an empty video');
+    }
+    // Wav2Lip produces mouth motion. Use the original spoken track for reliable audio.
+    // This is synchronization after actual model inference, NOT an audio-only fallback.
+    await execPromise(
+      '/usr/bin/ffmpeg -v error -y -i "' + downloadPath + '" -i "' + audioPath
+      + '" -map 0:v:0 -map 1:a:0 -c:v libx264 -pix_fmt yuv420p -c:a aac'
+      + ' -shortest "' + verifiedPath + '"',
+      { timeout: 180000 }
+    );
+    if (!fs.existsSync(verifiedPath) || fs.statSync(verifiedPath).size < 10000) {
+      throw new Error('Strict lip-sync final audiovisual export missing');
+    }
+    const { stdout } = await execPromise(
+      '/usr/bin/ffprobe -v error -show_entries stream=codec_type'
+      + ' -of csv=p=0 "' + verifiedPath + '"',
+      { timeout: 30000 }
+    );
+    const tracks = stdout.trim().split(/\s+/);
+    if (!tracks.includes('video') || !tracks.includes('audio')) {
+      throw new Error('Strict lip-sync output requires both video and audio tracks');
+    }
+    fs.renameSync(verifiedPath, outputPath);
+    return outputPath;
+  } finally {
+    for (const temporary of [downloadPath, verifiedPath]) {
+      if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+    }
+  }
+}
