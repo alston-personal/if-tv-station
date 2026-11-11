@@ -14,10 +14,8 @@ endpoint, not a new queue or a public self-service render API.
 - An approved **single canonical Taiwanese leopard-cat** image is on disk,
   with no baked fake player controls. Do not substitute a separately generated
   mascot or the prior v0.5 handmade prototype.
-- The existing Taiwan Mandarin `edge-tts` runtime is functional.
-- The available lip-sync model can handle THIS stylized leopard-cat face
-  (not assumed: Wav2Lip is primarily trained for human faces). The strict path
-  deliberately fails instead of claiming that an FFmpeg audio mux is lip sync.
+- The pinned MiniMax H3 Ref2VA runner supports native Chinese dialogue via `<d>[Chinese] ...</d>`. The official six-second outro must use the generated **video and audio from the same H3 inference**, not a silent clip with external TTS + human-face Wav2Lip added later.
+- H3 native spoken-video inference must produce intelligible Taiwan Mandarin and synchronized leopard-cat muzzle motion. This remains an editorial visual/audio acceptance, never inferred merely from the existence of an AAC stream. The older Wav2Lip strict helper is retained for legacy fallback experiments, **not** the approved branded-outro route.
 - The service's storage paths for job data and renders are writable.
 - Deployment operator configures:
   - `IFTV_OUTRO_JOB_TOKEN`: a fresh nonempty operator-only secret, protected
@@ -53,6 +51,8 @@ template. Unsupported template requests fail closed.
 
 To read Job status, use the existing:
 `GET https://<IFTV_HOST>/iftv/api/jobs?id=<job_id>`
+
+For Oracle, H3 provider defaults to the AgentOS pinned installation path `/home/ubuntu/agent-data/providers/colab/runtime/current` and enforces `COLAB_AUTH=adc`, avoiding the upstream runner's interactive OAuth2 default. Verify the release symlink points to the governed pinned commit `7768ebfb1627546595f37e9acfd2d353937c6cd8` before inference.
 
 The template purposely returns 403 without the operator token and 503 if
 the canonical master/manifest is absent. Neither rejection creates a Job.
