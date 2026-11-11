@@ -57,6 +57,14 @@ jobs:
           grep -Fq "if (cameraManifest)" src/lib/worker.ts
           grep -Fq "Native H3 spoken outro export missing" src/lib/worker.ts
           grep -Fq "fs.writeFileSync(brandTextPath, '如果電視'" src/lib/worker.ts
+      - name: Assert final H3 MP4 requires technical and editorial QA
+        run: |
+          grep -Fq "const durationPass = Number.isFinite(observedDuration)" src/lib/worker.ts
+          grep -Fq "visual?.codec_name === 'h264'" src/lib/worker.ts
+          grep -Fq "audio?.codec_name === 'aac'" src/lib/worker.ts
+          grep -Fq "speech_zh_tw_editorial:" src/lib/worker.ts
+          grep -Fq "lip_sync_editorial:" src/lib/worker.ts
+          grep -Fq "job.progress = 85" src/lib/worker.ts
       - name: Verify protected six-second outro Job contract
         run: |
           grep -Fq "productionTemplate === 'iftv-leopardcat-outro-v1'" src/app/api/generate/route.ts
