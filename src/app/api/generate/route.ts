@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { timingSafeEqual } from 'crypto';
+import { createHash, timingSafeEqual } from 'crypto';
 import { createJob, saveJob, normalizeMainCharacterDescription } from '../../../lib/db';
 import { startWorker } from '../../../lib/worker';
 
@@ -14,10 +14,11 @@ export async function POST(request: Request) {
       // Fail closed unless an explicit per-deployment operator secret is configured.
       const expected = process.env.IFTV_OUTRO_JOB_TOKEN;
       const supplied = request.headers.get('x-iftv-outro-token') || '';
-      if (!expected || !supplied || !timingSafeEqual(
-        Buffer.from(expected.padEnd(Math.max(expected.length, supplied.length), '\\0')),
-        Buffer.from(supplied.padEnd(Math.max(expected.length, supplied.length), '\\0'))
-      ) || expected.length !== supplied.length) {
+      if (!expected || !supplied ||
+          !timingSafeEqual(
+            createHash('sha256').update(expected).digest(),
+            createHash('sha256').update(supplied).digest()
+          )) {
         return NextResponse.json({ error: 'IFTV_OUTRO_AUTH_REQUIRED' }, { status: 403 });
       }
       const masterSource = process.env.IFTV_LEOPARDCAT_MASTER_IMAGE || '';
