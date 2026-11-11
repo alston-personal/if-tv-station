@@ -866,14 +866,27 @@ async function processJob(jobId: string) {
               }
               const referenceImage = cameraManifest ? masterImage : tempImage;
               const rawVideo = path.join('/tmp', `iftv_h3_raw_${jobId}_${segment.id}.mp4`);
-              const h3Prompt = [
+              // Ref2VA on the pinned H3 runner supports native Chinese speech
+              // via <d> markers. For this single-character outro do not mute
+              // the generator and then bolt on human-face Wav2Lip instead.
+              const h3Prompt = cameraManifest ? [
+                'subject_definitions:\nThe host (S1) is exactly the approved Taiwanese leopard-cat in <Picture 1>. Preserve facial spots, ear shape, outfit, and tail throughout. No other character.',
+                `summary:\n${segment.visualPrompt}`,
+                'retention_analysis:\nOne uninterrupted shot, fixed mascot identity and outfit, physically plausible paw/eye/muzzle movements, no text-player controls, no object morphing.',
+                'detailed_description:\n[Shot 1] 00:00.000–00:00.800 the mascot turns to the lens while the camera subtly dollies closer.'
+                  + '\\n[Shot 2] At 00:00.800, continue the SAME take and hold a steady medium close-up. The subject (S1) looks at the audience and says, <d>[Chinese] 如果電視，我們下次見！</d> with visibly synchronized mouth and muzzle articulation.'
+                  + '\\n[Shot 3] At 00:04.700, in the SAME take, the subject smiles and waves while the camera subtly dollies out.'
+                  + '\\n[Shot 4] At 00:05.500, hold a clean end-frame, retain character identity, suitable for adding the precise Traditional Chinese IF TV brand lockup in post.',
+                'overall_soundscape:\nOne natural Taiwanese Mandarin voice from S1 speaking the exact Chinese line, clear up-front, no additional speech. Include natural spoken audio synchronized with S1 lips. No narration from another voice.',
+                'non_diegetic_music:\nNo music, no incidental voice, clean room tone only.'
+              ].join('\\n\\n') : [
                 'subject_definitions: Match <Picture 1> exactly for face, ears, eyes, markings, wardrobe, and tail.',
                 `summary: ${segment.visualPrompt}`,
                 'retention_analysis: Lock canonical character identity, no morphing, no fake player chrome.',
                 'detailed_description: ONE continuous studio character shot with natural mouth, head and paw movements.',
                 'overall_soundscape: Dialogue will be attached by IFTV; show visibly articulated speech.',
                 'non_diegetic_music: None.'
-              ].join('\n\n');
+              ].join('\\n\\n');
               await generateVideoWithProvider({
                 provider: 'h3_colab', prompt: h3Prompt,
                 referenceImages: [referenceImage], durationSeconds: duration,
@@ -881,6 +894,38 @@ async function processJob(jobId: string) {
                 outputPath: rawVideo, jobId, segmentId: segment.id,
                 onProgress: (message) => console.log(`[IFTV H3] ${message}`)
               });
+              if (cameraManifest) {
+                // The model-generated clip has video + synchronized native
+                // dialogue audio. Preserve both tracks; do NOT replace its
+                // speech timing with post-produced TTS or Wav2Lip.
+                const { stdout: metadata } = await execPromise(
+                  '/usr/bin/ffprobe -v error -show_entries format=duration '
+                  + '-show_entries stream=codec_type -of json "' + rawVideo + '"',
+                  { timeout: 30000 }
+                );
+                const probe = JSON.parse(metadata);
+                const videoDuration = Number(probe.format?.duration);
+                const streams = (probe.streams || []).map((item: { codec_type?: string }) => item.codec_type);
+                if (!Number.isFinite(videoDuration) || videoDuration < duration - 0.15
+                    || !streams.includes('video') || !streams.includes('audio')) {
+                  throw new Error('H3 native spoken outro missing full-length audiovisual output');
+                }
+                await execPromise([
+                  '/usr/bin/ffmpeg -v error -y',
+                  `-i "${rawVideo}"`,
+                  '-vf "scale=1920:1080:flags=lanczos,fps=24"',
+                  '-map 0:v:0 -map 0:a:0',
+                  '-c:v libx264 -pix_fmt yuv420p -crf 18 -c:a aac',
+                  `-t ${duration.toFixed(2)} "${segmentPath}"`
+                ].join(' '), { timeout: 180000 });
+                if (!fs.existsSync(segmentPath) || fs.statSync(segmentPath).size < 10000) {
+                  throw new Error('Native H3 spoken outro export missing');
+                }
+                segment.duration = duration;
+                // Successful inference still requires human visual and voice QA.
+                fs.unlinkSync(rawVideo);
+                if (fs.existsSync(tempImage)) fs.unlinkSync(tempImage);
+              } else {
               await generateTtsSafe(segment.audioScript, tempTtsPath, true);
               const speechDuration = await getAudioDuration(tempTtsPath);
               const leadInSeconds = cameraManifest ? 0.8 : 0;
@@ -919,6 +964,7 @@ async function processJob(jobId: string) {
               segment.duration = resultDuration;
               for (const tempFile of [rawVideo, syncedVideo, timelineSpeech, tempTtsPath, tempImage]) {
                 if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+              }
               }
             } else if (mode === 'image_zoom' || runImageZoomFallback) {
               // ── 免費生圖平移縮放模式 (Flux + FFmpeg Ken Burns Effect) ──
