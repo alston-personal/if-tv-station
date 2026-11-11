@@ -874,19 +874,19 @@ async function processJob(jobId: string) {
                 `summary:\n${segment.visualPrompt}`,
                 'retention_analysis:\nOne uninterrupted shot, fixed mascot identity and outfit, physically plausible paw/eye/muzzle movements, no text-player controls, no object morphing.',
                 'detailed_description:\n[Shot 1] 00:00.000–00:00.800 the mascot turns to the lens while the camera subtly dollies closer.'
-                  + '\\n[Shot 2] At 00:00.800, continue the SAME take and hold a steady medium close-up. The subject (S1) looks at the audience and says, <d>[Chinese] 如果電視，我們下次見！</d> with visibly synchronized mouth and muzzle articulation.'
-                  + '\\n[Shot 3] At 00:04.700, in the SAME take, the subject smiles and waves while the camera subtly dollies out.'
-                  + '\\n[Shot 4] At 00:05.500, hold a clean end-frame, retain character identity, suitable for adding the precise Traditional Chinese IF TV brand lockup in post.',
+                  + '\n[Shot 2] At 00:00.800, continue the SAME take and hold a steady medium close-up. The subject (S1) looks at the audience and says, <d>[Chinese] 如果電視，我們下次見！</d> with visibly synchronized mouth and muzzle articulation.'
+                  + '\n[Shot 3] At 00:04.700, in the SAME take, the subject smiles and waves while the camera subtly dollies out.'
+                  + '\n[Shot 4] At 00:05.500, hold a clean end-frame, retain character identity, suitable for adding the precise Traditional Chinese IF TV brand lockup in post.',
                 'overall_soundscape:\nOne natural Taiwanese Mandarin voice from S1 speaking the exact Chinese line, clear up-front, no additional speech. Include natural spoken audio synchronized with S1 lips. No narration from another voice.',
                 'non_diegetic_music:\nNo music, no incidental voice, clean room tone only.'
-              ].join('\\n\\n') : [
+              ].join('\n\n') : [
                 'subject_definitions: Match <Picture 1> exactly for face, ears, eyes, markings, wardrobe, and tail.',
                 `summary: ${segment.visualPrompt}`,
                 'retention_analysis: Lock canonical character identity, no morphing, no fake player chrome.',
                 'detailed_description: ONE continuous studio character shot with natural mouth, head and paw movements.',
                 'overall_soundscape: Dialogue will be attached by IFTV; show visibly articulated speech.',
                 'non_diegetic_music: None.'
-              ].join('\\n\\n');
+              ].join('\n\n');
               await generateVideoWithProvider({
                 provider: 'h3_colab', prompt: h3Prompt,
                 referenceImages: [referenceImage], durationSeconds: duration,
