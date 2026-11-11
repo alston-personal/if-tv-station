@@ -58,5 +58,32 @@ jobs:
           grep -Fq "job.previewOnly = true" src/app/api/generate/route.ts
           grep -Fq "job.h3DurationSeconds = 6" src/app/api/generate/route.ts
           grep -Fq "let mode = job.videoGenerationMode || process.env.VIDEO_GENERATION_MODE" src/lib/worker.ts
+      - name: Verify unauthorized or unprepared outro request cannot enqueue a Job
+        run: |
+          set -euo pipefail
+          export IFTV_OUTRO_JOB_TOKEN="ci-only-not-a-production-secret"
+          unset IFTV_LEOPARDCAT_MASTER_IMAGE
+          npm run start -- -p 3471 > /tmp/iftv-ci-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for i in $(seq 1 30); do
+            if curl --silent --output /dev/null "http://127.0.0.1:3471/api/jobs"; then ready=1; break; fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then cat /tmp/iftv-ci-server.log; exit 1; fi
+          test ! -e jobs.json || cp jobs.json /tmp/iftv-before.json
+          unauthorized=$(curl --silent --output /tmp/iftv-noauth.json --write-out '%{http_code}' \
+            -X POST -H 'Content-Type: application/json' \
+            --data '{"productionTemplate":"iftv-leopardcat-outro-v1"}' \
+            'http://127.0.0.1:3471/api/generate')
+          test "$unauthorized" = 403
+          unprepared=$(curl --silent --output /tmp/iftv-unprepared.json --write-out '%{http_code}' \
+            -X POST -H 'Content-Type: application/json' \
+            -H 'x-iftv-outro-token: ci-only-not-a-production-secret' \
+            --data '{"productionTemplate":"iftv-leopardcat-outro-v1"}' \
+            'http://127.0.0.1:3471/api/generate')
+          test "$unprepared" = 503
+          if [ -f /tmp/iftv-before.json ]; then cmp /tmp/iftv-before.json jobs.json; else test ! -e jobs.json; fi
       - name: Build full IFTV application
         run: npm run build
