@@ -49,5 +49,14 @@ jobs:
           grep -Fq "Strict lip-sync provider truncated the requested scene" src/lib/lip_sync_util.ts
           grep -Fq "export async function syncLipMovementStrict(" src/lib/lip_sync_util.ts
           grep -Fq "IFTV camera outro requires ONE segment and previewOnly=true" src/lib/worker.ts
+      - name: Verify protected six-second outro Job contract
+        run: |
+          grep -Fq "productionTemplate === 'iftv-leopardcat-outro-v1'" src/app/api/generate/route.ts
+          grep -Fq "IFTV_OUTRO_JOB_TOKEN" src/app/api/generate/route.ts
+          grep -Fq "IFTV_LEOPARDCAT_MASTER_IMAGE" src/app/api/generate/route.ts
+          grep -Fq "job.videoGenerationMode = 'h3_colab'" src/app/api/generate/route.ts
+          grep -Fq "job.previewOnly = true" src/app/api/generate/route.ts
+          grep -Fq "job.h3DurationSeconds = 6" src/app/api/generate/route.ts
+          grep -Fq "let mode = job.videoGenerationMode || process.env.VIDEO_GENERATION_MODE" src/lib/worker.ts
       - name: Build full IFTV application
         run: npm run build
