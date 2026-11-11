@@ -104,6 +104,10 @@ export interface Job {
   productPlacementImg?: string; // Path to product placement image on disk
   productPlacementImgDesc?: string; // Gemini's visually described product characteristics
   previewOnly?: boolean;
+  /** Explicit task-scoped renderer; never change global default for a single job. */
+  videoGenerationMode?: 'h3_colab';
+  cameraMotionManifestPath?: string;
+  h3DurationSeconds?: number;
   segmentCount?: number;
   teaserAdvice?: {
     targetSegmentId: number;
