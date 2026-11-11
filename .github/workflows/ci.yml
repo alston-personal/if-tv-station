@@ -44,7 +44,9 @@ jobs:
         run: npx tsc --noEmit --skipLibCheck --esModuleInterop --target es2020 --module nodenext --moduleResolution nodenext src/lib/video_provider.ts
       - name: Assert lip-sync inference is required for H3 outro
         run: |
-          grep -Fq "await syncLipMovementStrict(rawVideo, tempTtsPath, syncedVideo)" src/lib/worker.ts
+          grep -Fq "await syncLipMovementStrict(rawVideo, timelineSpeech, syncedVideo, resultDuration)" src/lib/worker.ts
+          grep -Fq "adelay=" src/lib/worker.ts
+          grep -Fq "Strict lip-sync provider truncated the requested scene" src/lib/lip_sync_util.ts
           grep -Fq "export async function syncLipMovementStrict(" src/lib/lip_sync_util.ts
           grep -Fq "IFTV camera outro requires ONE segment and previewOnly=true" src/lib/worker.ts
       - name: Build full IFTV application
