@@ -20,6 +20,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Type-check standalone H3 Colab provider
+        run: npx tsc --noEmit --skipLibCheck --esModuleInterop --target es2020 --module nodenext --moduleResolution nodenext src/lib/video_provider.ts
       - name: Lint (legacy debt is reported but does not hide build errors)
         continue-on-error: true
         run: npm run lint
