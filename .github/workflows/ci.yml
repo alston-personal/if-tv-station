@@ -49,6 +49,14 @@ jobs:
           grep -Fq "Strict lip-sync provider truncated the requested scene" src/lib/lip_sync_util.ts
           grep -Fq "export async function syncLipMovementStrict(" src/lib/lip_sync_util.ts
           grep -Fq "IFTV camera outro requires ONE segment and previewOnly=true" src/lib/worker.ts
+      - name: Verify pinned Oracle ADC and native H3 spoken video wiring
+        run: |
+          grep -Fq "/home/ubuntu/agent-data/providers/colab/runtime/current" src/lib/video_provider.ts
+          grep -Fq "COLAB_AUTH: 'adc'" src/lib/video_provider.ts
+          grep -Fq "<d>[Chinese] 如果電視，我們下次見！</d>" src/lib/worker.ts
+          grep -Fq "if (cameraManifest)" src/lib/worker.ts
+          grep -Fq "Native H3 spoken outro export missing" src/lib/worker.ts
+          grep -Fq "fs.writeFileSync(brandTextPath, '如果電視'" src/lib/worker.ts
       - name: Verify protected six-second outro Job contract
         run: |
           grep -Fq "productionTemplate === 'iftv-leopardcat-outro-v1'" src/app/api/generate/route.ts
