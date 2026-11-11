@@ -230,7 +230,8 @@ async function uploadFileToTempStorage(filePath: string): Promise<string> {
 export async function syncLipMovementStrict(
   videoPath: string,
   audioPath: string,
-  outputPath: string
+  outputPath: string,
+  expectedDurationSeconds?: number
 ): Promise<string> {
   if (videoPath === outputPath || audioPath === outputPath) {
     throw new Error('Strict lip-sync output path must not overwrite inputs');
@@ -264,11 +265,24 @@ export async function syncLipMovementStrict(
     if (!fs.existsSync(downloadPath) || fs.statSync(downloadPath).size < 10000) {
       throw new Error('Strict lip-sync provider delivered an empty video');
     }
+    if (expectedDurationSeconds !== undefined) {
+      const { stdout: durationText } = await execPromise(
+        '/usr/bin/ffprobe -v error -show_entries format=duration'
+        + ' -of default=noprint_wrappers=1:nokey=1 "' + downloadPath + '"',
+        { timeout: 30000 }
+      );
+      const actualDuration = Number(durationText.trim());
+      if (!Number.isFinite(actualDuration) ||
+          actualDuration < expectedDurationSeconds - 0.20) {
+        throw new Error('Strict lip-sync provider truncated the requested scene');
+      }
+    }
     // Wav2Lip produces mouth motion. Use the original spoken track for reliable audio.
     // This is synchronization after actual model inference, NOT an audio-only fallback.
     await execPromise(
       '/usr/bin/ffmpeg -v error -y -i "' + downloadPath + '" -i "' + audioPath
-      + '" -map 0:v:0 -map 1:a:0 -c:v libx264 -pix_fmt yuv420p -c:a aac'
+      + '" -filter_complex "[1:a]apad[a]" -map 0:v:0 -map "[a]"'
+      + ' -c:v libx264 -pix_fmt yuv420p -c:a aac'
       + ' -shortest "' + verifiedPath + '"',
       { timeout: 180000 }
     );
