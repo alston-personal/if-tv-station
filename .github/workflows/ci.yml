@@ -70,7 +70,7 @@ jobs:
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           ready=0
           for i in $(seq 1 30); do
-            if curl --silent --output /dev/null "http://127.0.0.1:3471/api/jobs"; then ready=1; break; fi
+            if curl --silent --output /dev/null "http://127.0.0.1:3471/iftv/api/jobs"; then ready=1; break; fi
             sleep 1
           done
           if [ "$ready" -ne 1 ]; then cat /tmp/iftv-ci-server.log; exit 1; fi
@@ -78,12 +78,12 @@ jobs:
           unauthorized=$(curl --silent --output /tmp/iftv-noauth.json --write-out '%{http_code}' \
             -X POST -H 'Content-Type: application/json' \
             --data '{"productionTemplate":"iftv-leopardcat-outro-v1"}' \
-            'http://127.0.0.1:3471/api/generate')
+            'http://127.0.0.1:3471/iftv/api/generate')
           test "$unauthorized" = 403
           unprepared=$(curl --silent --output /tmp/iftv-unprepared.json --write-out '%{http_code}' \
             -X POST -H 'Content-Type: application/json' \
             -H 'x-iftv-outro-token: ci-only-not-a-production-secret' \
             --data '{"productionTemplate":"iftv-leopardcat-outro-v1"}' \
-            'http://127.0.0.1:3471/api/generate')
+            'http://127.0.0.1:3471/iftv/api/generate')
           test "$unprepared" = 503
           if [ -f /tmp/iftv-before.json ]; then cmp /tmp/iftv-before.json jobs.json; else test ! -e jobs.json; fi
