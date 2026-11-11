@@ -1,0 +1,53 @@
+# IFTV #3 — one continuous six-second H3 generated leopard-cat outro.
+# Consume through the shared AgentOS agentos_node/vision_studio_camera.py.
+# A 'shot' here is a camera/action beat, NOT a separate character generation.
+version: 1
+production: iftv-leopardcat-outro
+duration_seconds: 6
+master_reference: "required: pinned 3D Taiwanese leopard-cat master (do not use slideshow, mock player UI, or distinct poses as separate characters)"
+dialogue_zh_tw: "如果電視，我們下次見！"
+shots:
+  - id: intro
+    start_s: 0.0
+    duration_s: 0.8
+    camera_motion:
+      version: 1
+      type: dolly
+      direction: forward
+      speed: subtle
+      start_framing: medium
+      end_framing: medium_close_up
+      subject_lock: true
+  - id: speak
+    start_s: 0.8
+    duration_s: 3.9
+    camera_motion:
+      version: 1
+      type: locked
+      direction: none
+      speed: still
+      start_framing: medium_close_up
+      end_framing: medium_close_up
+      subject_lock: true
+  - id: wave
+    start_s: 4.7
+    duration_s: 0.8
+    camera_motion:
+      version: 1
+      type: dolly
+      direction: backward
+      speed: subtle
+      start_framing: medium_close_up
+      end_framing: medium
+      subject_lock: true
+  - id: logo
+    start_s: 5.5
+    duration_s: 0.5
+    camera_motion:
+      version: 1
+      type: locked
+      direction: none
+      speed: still
+      start_framing: medium
+      end_framing: medium
+      subject_lock: true
