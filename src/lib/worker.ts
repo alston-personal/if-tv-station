@@ -1145,15 +1145,61 @@ async function processJob(jobId: string) {
       const source = path.join(IF_TV_RENDER_DIR, `job_${jobId}_seg_${job.segments[0].id}.mp4`);
       const outputName = `job_${jobId}_final.mp4`;
       const output = path.join(IF_TV_RENDER_DIR, outputName);
-      if (!fs.existsSync(source) || fs.statSync(source).size === 0) {
+      if (!fs.existsSync(source) || fs.statSync(source).size < 10000) {
         throw new Error('Standalone H3 outro missing generated MP4');
       }
+      // Technical verification applies to the exact produced asset. A working
+      // codec is NOT proof of intelligible Mandarin, lip-sync or good art.
+      const { stdout: mediaDetails } = await execPromise(
+        '/usr/bin/ffprobe -v error -show_entries format=duration'
+        + ' -show_entries stream=codec_type,codec_name,width,height'
+        + ' -of json "' + source + '"', { timeout: 30000 }
+      );
+      const media = JSON.parse(mediaDetails);
+      const observedDuration = Number(media.format?.duration);
+      const streams = (media.streams || []) as Array<{
+        codec_type?: string; codec_name?: string; width?: number; height?: number;
+      }>;
+      const visual = streams.find((stream) => stream.codec_type === 'video');
+      const audio = streams.find((stream) => stream.codec_type === 'audio');
+      const durationPass = Number.isFinite(observedDuration)
+        && Math.abs(observedDuration - 6) <= 0.15;
+      const videoPass = visual?.codec_name === 'h264'
+        && visual.width === 1920 && visual.height === 1080;
+      const audioPass = audio?.codec_name === 'aac';
+      if (!durationPass || !videoPass || !audioPass) {
+        throw new Error(
+          'IFTV H3 outro technical QA failed: duration=' + observedDuration
+          + ' video=' + JSON.stringify(visual || null)
+          + ' audio=' + JSON.stringify(audio || null)
+        );
+      }
       fs.copyFileSync(source, output);
+      job.qualityChecks = {
+        duration_six_seconds: {
+          passed: true, details: 'ffprobe duration ' + observedDuration.toFixed(3) + 's'
+        },
+        video_hd_h264: {
+          passed: true, details: '1920x1080 H.264 observed'
+        },
+        audio_aac: {
+          passed: true, details: 'AAC audio track observed; speech content NOT yet verified'
+        },
+        speech_zh_tw_editorial: {
+          passed: false, details: 'Human listening QA of exact Taiwan Mandarin text pending'
+        },
+        lip_sync_editorial: {
+          passed: false, details: 'Muzzle articulation versus spoken syllables not visually reviewed'
+        },
+        identity_and_camera_editorial: {
+          passed: false, details: 'One leopard-cat identity and 4 ordered camera beats pending visual review'
+        }
+      };
       job.finalVideoUrl = `/renders/${outputName}`;
       job.status = 'preview_ready';
-      job.progress = 100;
+      job.progress = 85;
       saveJob(job);
-      console.log('[IFTV H3] Standalone camera outro available for QA; auto-publish disabled');
+      console.log('[IFTV H3] Technical checks passed. Editorial approval required; auto-publish blocked.');
       return;
     }
 
