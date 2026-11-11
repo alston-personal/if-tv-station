@@ -26,3 +26,21 @@ jobs:
         continue-on-error: true
         run: npm run lint
       - run: npm run build
+
+  full-source-integration:
+    name: Build full Worker with existing H3+Camera graft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: wip/2026-11-06
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type-check H3 provider on complete source
+        run: npx tsc --noEmit --skipLibCheck --esModuleInterop --target es2020 --module nodenext --moduleResolution nodenext src/lib/video_provider.ts
+      - name: Build full IFTV application
+        run: npm run build
